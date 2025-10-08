@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  password      String
+  name          String
+  role          Role            @default(CUSTOMER)
+  isActive      Boolean         @default(true)
+  tickets       Ticket[]        @relation("TicketAuthor")
+  assigned      Ticket[]        @relation("TicketAssignee")
+  comments      TicketComment[]
+  notifications Notification[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+enum Role {
+  ADMIN
+  AGENT
+  CUSTOMER
+}
+
+model Ticket {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  title       String
+  description String
+  priority    Priority           @default(MEDIUM)
+  status      Status             @default(OPEN)
+  authorId    String
+  assigneeId  String?
+  author      User               @relation("TicketAuthor", fields: [authorId], references: [id])
+  assignee    User?              @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  comments    TicketComment[]
+  attachments TicketAttachment[]
+  history     TicketHistory[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+enum Status {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  content   String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model TicketAttachment {
+  id         String   @id @default(cuid())
+  ticketId   String
+  filename   String
+  path       String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id])
+  uploadedAt DateTime @default(now())
+}
+
+model TicketHistory {
+  id        String   @id @default(cuid())
+  ticketId  String
+  action    String
+  payload   Json
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+}
