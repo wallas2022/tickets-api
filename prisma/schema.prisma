@@ -14,8 +14,8 @@ model User {
   name          String
   role          Role            @default(CUSTOMER)
   isActive      Boolean         @default(true)
-  tickets       Ticket[]        @relation("TicketAuthor")
-  assigned      Ticket[]        @relation("TicketAssignee")
+  tickets       Ticket[]        @relation("CreatedTickets")
+  assigned      Ticket[]        @relation("AssignedTickets")
   comments      TicketComment[]
   notifications Notification[]
   createdAt     DateTime        @default(now())
@@ -37,8 +37,8 @@ model Ticket {
   status      Status             @default(OPEN)
   authorId    String
   assigneeId  String?
-  author      User               @relation("TicketAuthor", fields: [authorId], references: [id])
-  assignee    User?              @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  author      User               @relation("CreatedTickets", fields: [authorId], references: [id])
+  assignee    User?              @relation("AssignedTickets", fields: [assigneeId], references: [id])
   comments    TicketComment[]
   attachments TicketAttachment[]
   history     TicketHistory[]

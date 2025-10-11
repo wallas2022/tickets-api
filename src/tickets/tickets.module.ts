@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
-import { PrismaModule } from '../prisma/prisma.module';
-import { JwtModule } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
+import { QueueModule } from '../queue/queue.module'; // ✅ IMPORTANTE
 
 @Module({
-  imports: [PrismaModule, JwtModule.register({})],
+  imports: [QueueModule], // 👈 Agrega esta línea
   controllers: [TicketsController],
-  providers: [TicketsService],
+  providers: [TicketsService, PrismaService],
 })
 export class TicketsModule {}
