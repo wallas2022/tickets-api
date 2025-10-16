@@ -6,6 +6,7 @@ import { Role } from '@prisma/client';
  * en `req.user` cuando el guard JWT valida el token.
  */
 export interface UserJwtPayload {
+   sub: string; // user
    id: string;
   email: string;
   name: string;

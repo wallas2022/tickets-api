@@ -55,4 +55,18 @@ export class TicketsController {
   delete(@CurrentUser() user: UserJwtPayload, @Param('id') id: string) {
     return this.ticketsService.delete(user, id);
   }
+
+  // 🔹 Asignar ticket a un agente (solo ADMIN)
+@Roles(Role.ADMIN)
+@Patch(':id/assign')
+assignTicket(
+  @CurrentUser() user: UserJwtPayload,
+  @Param('id') id: string,
+  @Body() body: { assigneeId: string },
+) {
+  return this.ticketsService.assignTicket(user, id, body.assigneeId);
 }
+
+
+}
+
