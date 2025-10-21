@@ -34,7 +34,7 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new UnauthorizedException('Contraseña incorrecta.');
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = {sub:  user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload, { expiresIn: '15m' });
     const refreshToken = await this.jwt.signAsync(payload, { expiresIn: '7d' });
 
@@ -42,7 +42,7 @@ export class AuthService {
       accessToken,
       refreshToken,
       user: {
-        id: user.id,
+        sub: user.id,
         email: user.email,
         name: user.name,
         role: user.role,

@@ -8,46 +8,53 @@ import { UserJwtPayload } from 'src/auth/typs/user-jwt-payload.type';
 export class TicketsService {
   constructor(private prisma: PrismaService, private queueService: QueueService,) {}
 
-  async findAll(user: UserJwtPayload) {
-  // 🔹 Si es ADMIN: puede ver todos los tickets
+  async findAll(
+  user: UserJwtPayload,
+  page: number,
+  limit: number,
+  search?: string,
+) {
+  const where: any = {};
+
+  // 🎯 Lógica de visibilidad por rol
   if (user.role === 'ADMIN') {
-    return this.prisma.ticket.findMany({
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // sin filtro de usuario
+  } else if (user.role === 'AGENT') {
+    where.assigneeId = user.sub;
+  } else if (user.role === 'CUSTOMER') {
+    where.authorId = user.sub;
   }
 
-  // 🔹 Si es AGENT: solo los tickets asignados a él
-  if (user.role === 'AGENT') {
-    return this.prisma.ticket.findMany({
-      where: { assigneeId: user.sub },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  // 🔍 Búsqueda por texto
+  if (search) {
+    where.OR = [
+      { title: { contains: search, mode: 'insensitive' } },
+      { description: { contains: search, mode: 'insensitive' } },
+      { code: { contains: search, mode: 'insensitive' } },
+    ];
   }
 
-  // 🔹 Si es CUSTOMER: solo los que él creó
-  if (user.role === 'CUSTOMER') {
-    return this.prisma.ticket.findMany({
-      where: { authorId: user.sub },
-      include: {
-        author: { select: { id: true, name: true, email: true } },
-        assignee: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
+  const total = await this.prisma.ticket.count({ where });
 
-  // Por seguridad, si no hay rol definido
-  return [];
+  const tickets = await this.prisma.ticket.findMany({
+    where,
+    include: {
+      author: { select: { id: true, name: true, email: true } },
+      assignee: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
+
+  return {
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+    data: tickets,
+  };
 }
-
  async create(user, data) {
     const next = Math.floor(1000 + Math.random() * 9000);
     const code = `TCK-${new Date().getFullYear()}-${next}`;
@@ -61,7 +68,7 @@ export class TicketsService {
         status: 'OPEN',
         code,
         author: {
-        connect: { id: user.id }, // ✅ conectar con usuario existente
+        connect: { id: user.sub }, // ✅ conectar con usuario existente
       },
       },
     });
@@ -126,7 +133,63 @@ export class TicketsService {
 }
 
   
+async getStats(user: UserJwtPayload) {
+    // 🟩 Si es ADMIN: ver estadísticas globales
+    if (user.role === 'ADMIN') {
+      const ticketsByUser = await this.prisma.ticket.groupBy({
+        by: ['authorId'],
+        _count: { id: true },
+      });
 
+      const ticketsByStatus = await this.prisma.ticket.groupBy({
+        by: ['status'],
+        _count: { id: true },
+      });
+
+      const users = await this.prisma.user.findMany({
+        select: { id: true, name: true },
+      });
+
+      const userStats = ticketsByUser.map((t) => {
+        const u = users.find((usr) => usr.id === t.authorId);
+        return {
+          name: u?.name || 'Desconocido',
+          tickets: t._count.id,
+        };
+      });
+
+      return {
+        userStats,
+        ticketsByStatus,
+      };
+    }
+
+    // 🟦 Si es AGENT: ver sus tickets asignados
+    if (user.role === 'AGENT') {
+      const ticketsByStatus = await this.prisma.ticket.groupBy({
+        by: ['status'],
+        where: { assigneeId: user.sub },
+        _count: { id: true },
+      });
+
+      return { userStats: [], ticketsByStatus };
+    }
+
+    // 🟨 Si es CUSTOMER: ver sus propios tickets
+    if (user.role === 'CUSTOMER') {
+      const ticketsByStatus = await this.prisma.ticket.groupBy({
+        by: ['status'],
+        where: { authorId: user.sub },
+        _count: { id: true },
+      });
+
+      return { userStats: [], ticketsByStatus };
+    }
+
+    // fallback vacío
+    return { userStats: [], ticketsByStatus: [] };
+  }
   
 }
+
 

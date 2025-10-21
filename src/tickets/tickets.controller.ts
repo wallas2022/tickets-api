@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { TicketsService } from './tickets.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -23,20 +24,25 @@ export class TicketsController {
 
   // 🔹 Listar tickets
   @Roles(Role.ADMIN, Role.AGENT, Role.CUSTOMER)
-  @Get()
-  findAll(@CurrentUser() user: UserJwtPayload) {
-    return this.ticketsService.findAll(user);
-  }
+@Get()
+findAll(
+  @CurrentUser() user: UserJwtPayload,
+  @Query('page') page = '1',
+  @Query('limit') limit = '5',
+  @Query('search') search?: string,
+) {
+  return this.ticketsService.findAll(user, Number(page), Number(limit), search);
+}
 
-  // 🔹 Crear ticket
-  @Roles(Role.CUSTOMER)
-  @Post()
-  create(
-    @CurrentUser() user: UserJwtPayload,
-    @Body() body: { title: string; description: string; priority: string },
-  ) {
-    return this.ticketsService.create(user, body);
-  }
+    // 🔹 Crear ticket
+    @Roles(Role.CUSTOMER)
+    @Post()
+    create(
+      @CurrentUser() user: UserJwtPayload,
+      @Body() body: { title: string; description: string; priority: string },
+    ) {
+      return this.ticketsService.create(user, body);
+    }
 
   // 🔹 Actualizar estado
   @Roles(Role.ADMIN, Role.AGENT)
@@ -67,6 +73,11 @@ assignTicket(
   return this.ticketsService.assignTicket(user, id, body.assigneeId);
 }
 
+@Roles(Role.ADMIN, Role.AGENT, Role.CUSTOMER)
+@Get('stats')
+getStats(@CurrentUser() user: UserJwtPayload) {
+  return this.ticketsService.getStats(user);
+
 
 }
-
+}
