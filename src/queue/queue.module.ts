@@ -11,7 +11,11 @@ import { QueueService } from './queue.service';
       },
     }),
     BullModule.registerQueue({
-      name: 'notifications', // Cola para notificaciones
+      name: 'notifications',
+      connection: {
+    host: 'localhost',
+    port: 6379,
+  }, // Cola para notificaciones
     }),
   ],
   providers: [QueueService],
