@@ -4,13 +4,15 @@ import { AuthModule } from './auth/auth.module';
 import { QueueModule } from './queue/queue.module';
 import { NotificationProcessor } from './queue/notification.processor';
 import { UsersModule } from './users/users.module';
+import { TicketCommentsModule } from './ticket-comments/ticket-comments.module';
 
 @Module({
   imports: [
     AuthModule,
     TicketsModule,
     QueueModule,
-    UsersModule
+    UsersModule,
+    TicketCommentsModule
   ],
   providers: [NotificationProcessor],
 })
