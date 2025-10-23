@@ -20,6 +20,11 @@ export class NotificationProcessor extends WorkerHost {
           `🔁 Ticket ${job.data.code} cambiado a ${job.data.status} por ${job.data.updatedBy}`,
         );
         break;
+      case 'ticket_commented':
+        this.logger.log(
+          `💬 Nuevo comentario en ticket ${job.data.code} por ${job.data.commentedBy}`,
+        );
+        break;
       default:
         this.logger.warn(`⚠️ Tipo de notificación desconocido: ${job.name}`);
     }

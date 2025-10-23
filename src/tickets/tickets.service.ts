@@ -1,19 +1,24 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Ticket, Role, Status } from '@prisma/client';
+import { Role, Status, Priority } from '@prisma/client';
 import { QueueService } from 'src/queue/queue.service';
 import { UserJwtPayload } from 'src/auth/typs/user-jwt-payload.type';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class TicketsService {
-  constructor(private prisma: PrismaService, private queueService: QueueService,) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly queueService: QueueService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async findAll(
-  user: UserJwtPayload,
-  page: number,
-  limit: number,
-  search?: string,
-) {
+    user: UserJwtPayload,
+    page: number,
+    limit: number,
+    search?: string,
+  ) {
   const where: any = {};
 
   // 🎯 Lógica de visibilidad por rol
@@ -51,11 +56,14 @@ export class TicketsService {
     total,
     page,
     limit,
-    totalPages: Math.ceil(total / limit),
+    totalPages: Math.max(1, Math.ceil(total / limit)),
     data: tickets,
   };
 }
- async create(user, data) {
+  async create(
+    user: UserJwtPayload,
+    data: { title: string; description: string; priority: string },
+  ) {
     const next = Math.floor(1000 + Math.random() * 9000);
     const code = `TCK-${new Date().getFullYear()}-${next}`;
 
@@ -63,43 +71,73 @@ export class TicketsService {
       data: {
         title: data.title,
         description: data.description,
-        priority: data.priority,
-       // authorId: user.id, // ⚠️ asegúrate de tener el id del usuario
-        status: 'OPEN',
+        priority: data.priority as Priority,
+        status: Status.OPEN,
         code,
         author: {
-        connect: { id: user.sub }, // ✅ conectar con usuario existente
+          connect: { id: user.sub },
+        },
       },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
       },
     });
 
-     // Encolar notificación
     await this.queueService.enqueueNotification('ticket_created', {
       code: ticket.code,
       title: ticket.title,
       createdBy: user.name,
     });
 
+    const admins = await this.prisma.user.findMany({
+      where: { role: Role.ADMIN, isActive: true },
+      select: { id: true },
+    });
+
+    await this.notifyUsers(
+      admins.map((admin) => admin.id).filter((id) => id !== user.sub),
+      'ticket_created',
+      {
+        code: ticket.code,
+        title: ticket.title,
+        createdBy: user.name,
+        priority: ticket.priority,
+      },
+    );
+
     return ticket;
   }
 
 
 
-  async updateStatus(user, id, status) {
+  async updateStatus(user: UserJwtPayload, id: string, status: Status) {
     const ticket = await this.prisma.ticket.update({
       where: { id },
       data: { status },
+      include: {
+        author: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+      },
     });
 
-      // ✅ Encolar notificación de cambio de estado
     await this.queueService.enqueueNotification('ticket_status_changed', {
       code: ticket.code,
       status: ticket.status,
       updatedBy: user.name,
     });
 
+    await this.notifyUsers(
+      [ticket.authorId, ticket.assigneeId],
+      'ticket_status_changed',
+      {
+        code: ticket.code,
+        status: ticket.status,
+        title: ticket.title,
+        updatedBy: user.name,
+      },
+    );
+
     return ticket;
-  
   }
 
   
@@ -129,13 +167,23 @@ export class TicketsService {
     assignedBy: user.name,
   });
 
+  await this.notifyUsers(
+    [ticket.assignee?.id, ticket.author?.id],
+    'ticket_assigned',
+    {
+      code: ticket.code,
+      assignedTo: ticket.assignee?.name,
+      assignedBy: user.name,
+      title: ticket.title,
+    },
+  );
+
   return ticket;
 }
 
   
-async getStats(user: UserJwtPayload) {
-    // 🟩 Si es ADMIN: ver estadísticas globales
-    if (user.role === 'ADMIN') {
+  async getStats(user: UserJwtPayload) {
+    if (user.role === Role.ADMIN) {
       const ticketsByUser = await this.prisma.ticket.groupBy({
         by: ['authorId'],
         _count: { id: true },
@@ -153,6 +201,7 @@ async getStats(user: UserJwtPayload) {
       const userStats = ticketsByUser.map((t) => {
         const u = users.find((usr) => usr.id === t.authorId);
         return {
+          id: t.authorId,
           name: u?.name || 'Desconocido',
           tickets: t._count.id,
         };
@@ -161,35 +210,92 @@ async getStats(user: UserJwtPayload) {
       return {
         userStats,
         ticketsByStatus,
+        summary: this.buildStatusSummary(ticketsByStatus),
       };
     }
 
-    // 🟦 Si es AGENT: ver sus tickets asignados
-    if (user.role === 'AGENT') {
+    if (user.role === Role.AGENT) {
       const ticketsByStatus = await this.prisma.ticket.groupBy({
         by: ['status'],
         where: { assigneeId: user.sub },
         _count: { id: true },
       });
 
-      return { userStats: [], ticketsByStatus };
+      return {
+        userStats: [],
+        ticketsByStatus,
+        summary: this.buildStatusSummary(ticketsByStatus),
+      };
     }
 
-    // 🟨 Si es CUSTOMER: ver sus propios tickets
-    if (user.role === 'CUSTOMER') {
+    if (user.role === Role.CUSTOMER) {
       const ticketsByStatus = await this.prisma.ticket.groupBy({
         by: ['status'],
         where: { authorId: user.sub },
         _count: { id: true },
       });
 
-      return { userStats: [], ticketsByStatus };
+      return {
+        userStats: [],
+        ticketsByStatus,
+        summary: this.buildStatusSummary(ticketsByStatus),
+      };
     }
 
-    // fallback vacío
-    return { userStats: [], ticketsByStatus: [] };
+    return {
+      userStats: [],
+      ticketsByStatus: [],
+      summary: this.buildStatusSummary([]),
+    };
   }
-  
+
+  private async notifyUsers(
+    userIds: Array<string | null | undefined>,
+    type: string,
+    payload: Record<string, any>,
+  ) {
+    const unique = Array.from(
+      new Set(userIds.filter((id): id is string => Boolean(id))),
+    );
+
+    if (!unique.length) return;
+
+    await this.notifications.createMany(unique, type, payload);
+  }
+
+  private buildStatusSummary(
+    ticketsByStatus: Array<{ status: Status; _count: { id: number } }>,
+  ) {
+    const summary = {
+      total: 0,
+      open: 0,
+      inProgress: 0,
+      resolved: 0,
+      closed: 0,
+    };
+
+    ticketsByStatus.forEach((item) => {
+      const count = item._count?.id ?? 0;
+      summary.total += count;
+
+      switch (item.status) {
+        case Status.OPEN:
+          summary.open = count;
+          break;
+        case Status.IN_PROGRESS:
+          summary.inProgress = count;
+          break;
+        case Status.RESOLVED:
+          summary.resolved = count;
+          break;
+        case Status.CLOSED:
+          summary.closed = count;
+          break;
+        default:
+          break;
+      }
+    });
+
+    return summary;
+  }
 }
-
-
